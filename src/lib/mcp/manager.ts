@@ -47,9 +47,11 @@ export class MCPManager {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "∅";
     console.log(`[mcp] init: app_url=${appUrl} servers=${Object.keys(config.mcpServers).join(",")}`);
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
-      const kind = cfg.type ?? "stdio";
-      const url = kind === "remote" ? cfg.url : "(stdio)";
-      console.log(`[mcp]   ${name}: kind=${kind} url=${url}`);
+      if (cfg.type === "remote") {
+        console.log(`[mcp]   ${name}: kind=remote url=${cfg.url}`);
+      } else {
+        console.log(`[mcp]   ${name}: kind=stdio`);
+      }
     }
 
     await Promise.all(
