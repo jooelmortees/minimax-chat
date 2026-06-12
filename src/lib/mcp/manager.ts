@@ -39,6 +39,8 @@ export class MCPManager {
   }
 
   async initialize(): Promise<void> {
+    // Marcador único: si ves este log, sabes que es el código actual.
+    console.log(`[mcp] init() called instance=${Math.random().toString(36).slice(2, 10)} initialized=${this.initialized} initPromise=${!!this.initPromise}`);
     if (this.initialized) return;
     if (this.initPromise) return this.initPromise;
     this.initPromise = this.doInitialize();
