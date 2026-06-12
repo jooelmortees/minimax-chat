@@ -105,10 +105,17 @@ export class MCPManager {
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
     try {
       if (config.type === "remote") {
-        console.log(`[mcp] parse ${name} url=${JSON.stringify(config.url)} len=${config.url.length}`);
+        // FORZAR log: imprime la URL EXACTA con códigos de caracteres
+        console.log(`[mcp] parse start name=${name} url=${JSON.stringify(config.url)} len=${config.url.length}`);
+        for (let i = 0; i < config.url.length; i++) {
+          if (config.url.charCodeAt(i) < 32 || config.url.charCodeAt(i) > 126) {
+            console.log(`[mcp] BAD CHAR at ${i}: code=${config.url.charCodeAt(i)}`);
+          }
+        }
         transport = new StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: config.headers },
         });
+        console.log(`[mcp] parse OK name=${name}`);
       } else {
         transport = new StdioClientTransport({
           command: config.command,
@@ -118,7 +125,7 @@ export class MCPManager {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.log(`[mcp] parse FAIL ${name} url=${JSON.stringify(config.url)} err=${message}`);
+      console.log(`[mcp] parse FAIL name=${name} msg=${message}`);
       status.error = `Config inválida: ${message}`;
       this.servers.set(name, {
         name,
