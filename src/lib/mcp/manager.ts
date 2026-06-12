@@ -22,19 +22,30 @@ interface ServerHandle {
 
 const SERVER_PREFIX = "mcp__";
 
-let manager: MCPManager | null = null;
-
+/**
+ * En Vercel (serverless) NO podemos mantener un singleton de procesos MCP entre
+ * requests porque las warm instances cachean estado. Cada request obtiene un
+ * MCPManager NUEVO. El overhead es bajo (cargar un JSON pequeño + abrir
+ * conexiones HTTP perezosas a MCPs remotos). Los MCPs stdio (legacy) ya no
+ * se usan en este deploy.
+ */
 export class MCPManager {
   private servers = new Map<string, ServerHandle>();
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
 
   static get(): MCPManager {
-    if (!manager) manager = new MCPManager();
-    return manager;
+    return new MCPManager();
   }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInitialize();
+    return this.initPromise;
+  }
+
+  private async doInitialize(): Promise<void> {
     this.initialized = true;
 
     const config = await loadMCPConfig();
@@ -43,7 +54,6 @@ export class MCPManager {
       return;
     }
 
-    // Log para depuración: una línea corta por server (Vercel trunca a ~4KB).
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "∅";
     console.log(`[mcp] init app=${appUrl.slice(0, 40)}`);
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
