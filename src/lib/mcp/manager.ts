@@ -43,14 +43,13 @@ export class MCPManager {
       return;
     }
 
-    // Log para depuración: ver si las env vars llegan al server.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    console.log(
-      `[mcp] init at ${new Date().toISOString()}: NEXT_PUBLIC_APP_URL=${appUrl ?? "∅"}; ${Object.keys(config.mcpServers).length} servers`
-    );
+    // Log compacto para depuración: ver la URL interpolada de cada MCP remoto.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "∅";
+    console.log(`[mcp] init: app_url=${appUrl} servers=${Object.keys(config.mcpServers).join(",")}`);
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
-      const url = cfg.type === "remote" ? cfg.url : "(stdio)";
-      console.log(`[mcp]   - ${name}: type=${cfg.type ?? "stdio"} url=${url} enabled=${cfg.enabled !== false}`);
+      const kind = cfg.type ?? "stdio";
+      const url = kind === "remote" ? cfg.url : "(stdio)";
+      console.log(`[mcp]   ${name}: kind=${kind} url=${url}`);
     }
 
     await Promise.all(
