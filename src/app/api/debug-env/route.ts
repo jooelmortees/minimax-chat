@@ -4,15 +4,34 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const tavilyUrl = `${appUrl}/api/mcp/tavily`;
+  const minimaxUrl = `${appUrl}/api/mcp/minimax`;
+
+  // Probar si la URL es parseable
+  let tavilyParse: { ok: boolean; reason?: string };
+  try {
+    new URL(tavilyUrl);
+    tavilyParse = { ok: true };
+  } catch (err) {
+    tavilyParse = { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+  let minimaxParse: { ok: boolean; reason?: string };
+  try {
+    new URL(minimaxUrl);
+    minimaxParse = { ok: true };
+  } catch (err) {
+    minimaxParse = { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+
   return Response.json({
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? '∅',
-    MINIMAX_API_KEY_prefix: (process.env.MINIMAX_API_KEY ?? '').slice(0, 12),
-    TAVILY_API_KEY_prefix: (process.env.TAVILY_API_KEY ?? '').slice(0, 12),
-    MCP_PROXY_TOKEN_set: !!process.env.MCP_PROXY_TOKEN,
-    CONTEXT7_API_KEY_prefix: (process.env.CONTEXT7_API_KEY ?? '').slice(0, 12),
-    GROQ_API_KEY_prefix: (process.env.GROQ_API_KEY ?? '').slice(0, 12),
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '∅',
-    NEXT_PUBLIC_SUPABASE_ANON_KEY_prefix: (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').slice(0, 16),
+    NEXT_PUBLIC_APP_URL: appUrl,
+    NEXT_PUBLIC_APP_URL_len: appUrl.length,
+    NEXT_PUBLIC_APP_URL_chars: Array.from(appUrl).map((c) => c.charCodeAt(0)),
+    computed_tavily_url: tavilyUrl,
+    tavily_url_parse: tavilyParse,
+    computed_minimax_url: minimaxUrl,
+    minimax_url_parse: minimaxParse,
     timestamp: new Date().toISOString(),
   });
 }
