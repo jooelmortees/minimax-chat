@@ -55,12 +55,14 @@ export class MCPManager {
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "∅";
-    console.log(`[mcp] init app=${appUrl.slice(0, 40)}`);
+    console.log(`[mcp] init app=${appUrl.slice(0, 40)} servers_count=${Object.keys(config.mcpServers).length}`);
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
+      // Cada iteración con un prefijo único para evitar dedup de logs en Vercel.
+      const logId = Math.random().toString(36).slice(2, 8);
       if (cfg.type === "remote") {
-        console.log(`[mcp] srv=${name} url=${cfg.url.slice(0, 80)}`);
+        console.log(`[mcp][${logId}] srv=${name} url=${cfg.url.slice(0, 80)}`);
       } else {
-        console.log(`[mcp] srv=${name} kind=stdio`);
+        console.log(`[mcp][${logId}] srv=${name} kind=stdio`);
       }
     }
 
