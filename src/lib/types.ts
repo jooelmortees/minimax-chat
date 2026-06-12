@@ -37,11 +37,21 @@ export interface Attachment {
   mimeType: string;
   name: string;
   /**
-   * Contenido del adjunto. Para imágenes, dataURL (data:image/...;base64,...).
-   * Para audio, dataURL o un blob URL que apunte a un endpoint del backend.
+   * Contenido del adjunto en dataURL (data:...;base64,...). Se usa como
+   * preview inmediato y como payload que se envía al backend para que el
+   * modelo lo vea.
+   *
+   * NO se persiste en la base de datos. La persistencia usa `storagePath`.
    */
   dataUrl: string;
   size: number;
+  /**
+   * Ruta en Supabase Storage (bucket 'chat-attachments', privado). Si está
+   * presente, al renderizar se usa una signed URL de corta duración en
+   * lugar de dataURL, lo que evita duplicar el binario en cada dispositivo
+   * y reduce drásticamente el peso de los mensajes.
+   */
+  storagePath?: string;
 }
 
 /** Preferencias de capacidades multimodales (en localStorage). */

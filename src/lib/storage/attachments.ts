@@ -61,11 +61,13 @@ function bytesToBase64(bytes: Uint8Array): string {
 /**
  * Sube un archivo a Storage y devuelve el Attachment listo para guardar en
  * la tabla `attachments` (sin `message_id`, eso lo rellena quien lo asocie).
+ *
+ * Si se le pasa un `dataUrl` en options, se sube ese contenido (útil para
+ * re-subir un dataURL existente). Si no, se sube el `file` directamente.
  */
 export async function uploadAttachment(
-  file: File | Blob,
-  name: string,
-  mimeType: string
+  file: File | Blob | { dataUrl: string; mimeType: string; name: string; size: number },
+  options?: { dataUrl?: string }
 ): Promise<{
   attachment: Omit<Attachment, 'dataUrl'> & { storagePath: string };
 }> {
@@ -75,15 +77,31 @@ export async function uploadAttachment(
   } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
 
+  let mimeType: string;
+  let name: string;
+  let size: number;
+  let body: Blob;
+  if ('dataUrl' in file) {
+    mimeType = file.mimeType;
+    name = file.name;
+    size = file.size;
+    body = dataUrlToBlob(file.dataUrl);
+  } else {
+    mimeType = (file as File).type || 'application/octet-stream';
+    name = (file as File).name || 'archivo';
+    size = file.size;
+    body = file;
+  }
+  void options; // por si en el futuro se quiere parametrizar
+
   const id = `att_${nanoid(12)}`;
   const ext = extensionFor(mimeType, name);
   const storagePath = `${user.id}/${id}.${ext}`;
   const kind = kindFor(mimeType);
-  const size = file.size;
 
   const { error: upErr } = await supabase.storage
     .from('chat-attachments')
-    .upload(storagePath, file, {
+    .upload(storagePath, body, {
       contentType: mimeType,
       cacheControl: '3600',
       upsert: false,
@@ -100,6 +118,21 @@ export async function uploadAttachment(
       storagePath,
     },
   };
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const m = /^data:([^;]+)(;base64)?,(.*)$/.exec(dataUrl);
+  if (!m) throw new Error('dataURL inválido');
+  const mime = m[1];
+  const isBase64 = !!m[2];
+  const data = m[3];
+  if (isBase64) {
+    const bin = atob(data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+  return new Blob([decodeURIComponent(data)], { type: mime });
 }
 
 /**

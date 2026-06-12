@@ -4,7 +4,8 @@ import { Bot, Brain, User, Image as ImageIcon, Mic } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { ToolCallCard } from "./ToolCallCard";
 import { cn, formatBytes, formatRelativeTime } from "@/lib/utils";
-import type { Message } from "@/lib/types";
+import { useAttachmentSrc } from "@/lib/hooks/useAttachmentSrc";
+import type { Attachment, Message } from "@/lib/types";
 
 interface MessageBubbleProps {
   message: Message;
@@ -112,18 +113,20 @@ export function MessageBubble({ message, showReasoning, isStreaming }: MessageBu
   );
 }
 
-function UserAttachmentView({ att }: { att: import("@/lib/types").Attachment }) {
+function UserAttachmentView({ att }: { att: Attachment }) {
+  const src = useAttachmentSrc(att);
+  const displaySrc = src ?? att.dataUrl;
   if (att.kind === "image") {
     return (
       <a
-        href={att.dataUrl}
+        href={displaySrc}
         target="_blank"
         rel="noopener noreferrer"
         className="block rounded-lg overflow-hidden border border-white/20 hover:border-white/40 transition-colors"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={att.dataUrl}
+          src={displaySrc}
           alt={att.name}
           className="max-w-[200px] max-h-[200px] object-cover"
         />
@@ -133,7 +136,7 @@ function UserAttachmentView({ att }: { att: import("@/lib/types").Attachment }) 
   if (att.kind === "video") {
     return (
       <video
-        src={att.dataUrl}
+        src={displaySrc}
         controls
         className="max-w-[220px] max-h-[200px] rounded-lg border border-white/20"
         preload="metadata"
@@ -145,7 +148,7 @@ function UserAttachmentView({ att }: { att: import("@/lib/types").Attachment }) 
       <div className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-2 py-1.5">
         <Mic size={14} />
         <audio
-          src={att.dataUrl}
+          src={displaySrc}
           controls
           className="h-8 max-w-[220px]"
           preload="metadata"

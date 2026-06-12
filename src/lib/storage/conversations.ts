@@ -12,6 +12,7 @@
 
 import { nanoid } from 'nanoid';
 import {
+  type Attachment,
   type Capabilities,
   DEFAULT_CAPABILITIES,
   type Conversation,
@@ -55,6 +56,20 @@ function rowToConversation(row: ConvRow, messages: Message[]): Conversation {
 }
 
 function rowToMessage(row: MsgRow): Message {
+  const rawAttachments = Array.isArray(row.attachments_meta)
+    ? (row.attachments_meta as unknown as Array<Record<string, unknown>>)
+    : [];
+  const attachments: Message['attachments'] = rawAttachments.map((a) => ({
+    id: String(a.id ?? ''),
+    kind: (a.kind as Attachment['kind']) ?? 'file',
+    mimeType: String(a.mimeType ?? 'application/octet-stream'),
+    name: String(a.name ?? 'archivo'),
+    size: Number(a.size ?? 0),
+    // Si tiene storagePath, el dataUrl se resuelve en el render vía signed URL.
+    // Si no (mensaje legacy), usamos el dataUrl persistido.
+    dataUrl: a.storagePath ? '' : String(a.dataUrl ?? ''),
+    storagePath: a.storagePath ? String(a.storagePath) : undefined,
+  }));
   return {
     id: row.id,
     role: row.role,
@@ -64,9 +79,7 @@ function rowToMessage(row: MsgRow): Message {
       ? (row.tool_calls as unknown as Message['toolCalls'])
       : [],
     toolCallId: row.tool_call_id ?? undefined,
-    attachments: Array.isArray(row.attachments_meta)
-      ? (row.attachments_meta as unknown as Message['attachments'])
-      : [],
+    attachments,
     createdAt: new Date(row.created_at).getTime(),
   };
 }
@@ -179,7 +192,25 @@ export async function upsertConversation(
       reasoning: m.reasoning ?? null,
       tool_call_id: m.toolCallId ?? null,
       tool_calls: (m.toolCalls ?? []) as unknown as Database['public']['Tables']['messages']['Insert']['tool_calls'],
-      attachments_meta: (m.attachments ?? []) as unknown as Database['public']['Tables']['messages']['Insert']['attachments_meta'],
+      // attachments_meta: persistimos metadata compacta. Si hay storagePath
+      // (caso normal post-migración) NO guardamos el dataUrl: el render
+      // resuelve la signed URL on-demand. Si no hay storagePath (mensaje
+      // legacy o subida fallida), conservamos el dataUrl.
+      attachments_meta: (m.attachments ?? []).map((a) => {
+        const base: Record<string, unknown> = {
+          id: a.id,
+          kind: a.kind,
+          mimeType: a.mimeType,
+          name: a.name,
+          size: a.size,
+        };
+        if (a.storagePath) {
+          base.storagePath = a.storagePath;
+        } else if (a.dataUrl) {
+          base.dataUrl = a.dataUrl;
+        }
+        return base;
+      }) as unknown as Database['public']['Tables']['messages']['Insert']['attachments_meta'],
       created_at: new Date(m.createdAt).toISOString(),
     }));
     const { error: insErr } = await supabase.from('messages').insert(rows);

@@ -4,15 +4,17 @@ import { useEffect, useRef, useState, KeyboardEvent } from "react";
 import {
   Send,
   Square,
-  Paperclip,
   Mic,
   MicOff,
   Image as ImageIcon,
   Video as VideoIcon,
   X,
+  Loader2,
 } from "lucide-react";
 import { cn, formatBytes } from "@/lib/utils";
 import type { Attachment } from "@/lib/types";
+import { uploadAttachment } from "@/lib/storage/attachments";
+import { useAttachmentSrc } from "@/lib/hooks/useAttachmentSrc";
 
 interface ChatInputProps {
   onSend: (text: string, attachments: Attachment[]) => void;
@@ -24,9 +26,8 @@ interface ChatInputProps {
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024; // 20 MB
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50 MB (MiniMax-M3 traga dataURLs grandes pero tiene coste)
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50 MB
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-const ALLOWED_AUDIO_TYPES = ["audio/webm", "audio/ogg", "audio/wav", "audio/mp3", "audio/mpeg", "audio/mp4"];
 const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/ogg", "video/quicktime"];
 
 export function ChatInput({
@@ -41,6 +42,7 @@ export function ChatInput({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [uploadingCount, setUploadingCount] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -67,6 +69,10 @@ export function ChatInput({
   const submit = () => {
     const text = value.trim();
     if ((!text && attachments.length === 0) || isStreaming || disabled) return;
+    if (uploadingCount > 0) {
+      setMediaError("Espera a que terminen de subirse los adjuntos.");
+      return;
+    }
     onSend(text, attachments);
     setValue("");
     setAttachments([]);
@@ -82,10 +88,51 @@ export function ChatInput({
   const onPickImage = () => fileInputRef.current?.click();
   const onPickVideo = () => videoInputRef.current?.click();
 
+  /**
+   * Pipeline común: lee como dataURL (preview inmediato) + sube a Storage.
+   * Si la subida falla, dejamos el attachment con dataURL pero sin storagePath,
+   * de forma que se sigue usando el flujo legacy.
+   */
+  const addAttachment = async (
+    file: File | Blob,
+    kind: Attachment["kind"],
+    name: string
+  ): Promise<void> => {
+    const dataUrl = await readBlobAsDataURL(file);
+    const mimeType = file instanceof File ? file.type : (file as Blob).type || "application/octet-stream";
+    const id = `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const tempAtt: Attachment = {
+      id,
+      kind,
+      mimeType,
+      name,
+      dataUrl,
+      size: file.size,
+    };
+    setAttachments((prev) => [...prev, tempAtt]);
+
+    setUploadingCount((c) => c + 1);
+    try {
+      const { attachment } = await uploadAttachment(file);
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === id
+            ? { ...a, id: attachment.id, storagePath: attachment.storagePath }
+            : a
+        )
+      );
+    } catch (err) {
+      console.warn("uploadAttachment falló, se usará dataURL inline:", err);
+      // No bloqueamos: el attachment sigue siendo usable, solo que no sincroniza entre dispositivos.
+    } finally {
+      setUploadingCount((c) => Math.max(0, c - 1));
+    }
+  };
+
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setMediaError(null);
     const file = e.target.files?.[0];
-    e.target.value = ""; // permite re-seleccionar el mismo
+    e.target.value = "";
     if (!file) return;
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
       setMediaError(`Tipo no soportado: ${file.type}. Usa PNG/JPG/WebP/GIF.`);
@@ -97,16 +144,7 @@ export function ChatInput({
       );
       return;
     }
-    const dataUrl = await readFileAsDataURL(file);
-    const att: Attachment = {
-      id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      kind: "image",
-      mimeType: file.type,
-      name: file.name,
-      dataUrl,
-      size: file.size,
-    };
-    setAttachments((prev) => [...prev, att]);
+    await addAttachment(file, "image", file.name);
   };
 
   const onVideoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -124,16 +162,7 @@ export function ChatInput({
       );
       return;
     }
-    const dataUrl = await readFileAsDataURL(file);
-    const att: Attachment = {
-      id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      kind: "video",
-      mimeType: file.type,
-      name: file.name,
-      dataUrl,
-      size: file.size,
-    };
-    setAttachments((prev) => [...prev, att]);
+    await addAttachment(file, "video", file.name);
   };
 
   const removeAttachment = (id: string) =>
@@ -148,7 +177,6 @@ export function ChatInput({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
-      // Elegimos un mimeType compatible
       const mimeType = [
         "audio/webm;codecs=opus",
         "audio/webm",
@@ -172,7 +200,6 @@ export function ChatInput({
             `Audio demasiado grande (${formatBytes(blob.size)}). Máximo ${formatBytes(MAX_AUDIO_BYTES)}.`
           );
         } else if (blob.size > 0) {
-          const dataUrl = await blobToDataURL(blob);
           const ext = mime.includes("ogg")
             ? "ogg"
             : mime.includes("mp4")
@@ -180,15 +207,7 @@ export function ChatInput({
             : mime.includes("wav")
             ? "wav"
             : "webm";
-          const att: Attachment = {
-            id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            kind: "audio",
-            mimeType: mime,
-            name: `grabacion.${ext}`,
-            dataUrl,
-            size: blob.size,
-          };
-          setAttachments((prev) => [...prev, att]);
+          await addAttachment(blob, "audio", `grabacion.${ext}`);
         }
         stopRecordingStream();
       };
@@ -233,7 +252,11 @@ export function ChatInput({
     setIsRecording(false);
   };
 
-  const canSend = (value.trim().length > 0 || attachments.length > 0) && !isStreaming && !disabled;
+  const canSend =
+    (value.trim().length > 0 || attachments.length > 0) &&
+    !isStreaming &&
+    !disabled &&
+    uploadingCount === 0;
 
   return (
     <div className="border-t border-border bg-bg p-2 sm:p-4">
@@ -365,7 +388,7 @@ export function ChatInput({
               )}
               aria-label="Enviar"
             >
-              <Send size={14} />
+              {uploadingCount > 0 ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             </button>
           )}
         </div>
@@ -394,12 +417,14 @@ function AttachmentChip({
       : att.kind === "audio"
       ? Mic
       : ImageIcon;
+  const previewSrc = useAttachmentSrc(att);
+
   return (
     <div className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg border border-border bg-bg-elevated text-xs">
       {att.kind === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={att.dataUrl}
+          src={previewSrc ?? att.dataUrl}
           alt={att.name}
           className="w-8 h-8 rounded object-cover"
         />
@@ -412,6 +437,7 @@ function AttachmentChip({
         <div className="truncate">{att.name}</div>
         <div className="text-fg-subtle text-[10px]">
           {att.kind} · {formatBytes(att.size)}
+          {att.storagePath ? " · ☁️" : ""}
         </div>
       </div>
       {!disabled && (
@@ -428,16 +454,7 @@ function AttachmentChip({
   );
 }
 
-function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result as string);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
-}
-
-function blobToDataURL(blob: Blob): Promise<string> {
+function readBlobAsDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(r.result as string);

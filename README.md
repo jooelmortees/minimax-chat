@@ -10,14 +10,15 @@ Web tipo chat con **MiniMax M3** (vía API OpenAI-compatible), acceso a **MCP se
 - **Streaming SSE** con texto y razonamiento (`<think>…</think>`) en tiempo real.
 - **Tool calling transparente**: ves qué tool se llama, con sus args, y el resultado.
 - **MCP servers** cargados desde `mcp_servers.json`. Soporta stdio (local) y remoto (HTTP). Por defecto trae:
-  - `context7` (remoto oficial) — docs actualizadas.
+  - `context7` (remoto oficial Upstash) — docs actualizadas.
   - `gh_grep` (remoto) — búsqueda de código en GitHub.
-  - `tavily` (stdio) — web search/extract/crawl. **Solo local**.
-  - `minimax-mcp` (stdio) — imagen, video, audio TTS, música. **Solo local**.
+  - `tavily` (proxy MCP propio) — web search/extract/crawl. Funciona en Vercel.
+  - `minimax` (proxy MCP propio) — imagen, video, audio TTS, música, voces. Funciona en Vercel.
+  - **Los proxies MCP de Tavily y MiniMax** se exponen en route handlers de Next.js (`/api/mcp/tavily` y `/api/mcp/minimax`) usando `WebStandardStreamableHTTPServerTransport` del SDK MCP. Cada request crea un server + transport stateless (compatible con Vercel Functions). Las API keys se leen de `process.env` en el server, nunca llegan al cliente.
 - **Auth con Supabase** (email + contraseña). El registro está deshabilitado por defecto: das de alta usuarios manualmente desde la Dashboard.
 - **Persistencia en Supabase Postgres**: conversaciones, mensajes, prefs y adjuntos.
 - **Realtime** activado en `conversations` y `messages` → ves los cambios en tiempo real desde cualquier dispositivo.
-- **Storage** (bucket privado `chat-attachments`) con RLS por `user_id`. Helper listo en `src/lib/storage/attachments.ts`. **Pendiente**: integración completa con el flujo de adjuntos del cliente (ver "Limitaciones").
+- **Storage** (bucket privado `chat-attachments`) con RLS por `user_id`. Al adjuntar un archivo, el cliente lo sube a Storage y la UI muestra una preview usando signed URLs. La metadata en `messages.attachments_meta` guarda solo `storagePath` (no el dataURL), por lo que los mensajes no se duplican entre dispositivos.
 - **AGENTS.md como system prompt**: se carga tu `~/.config/opencode/AGENTS.md` y el `AGENTS.md` del proyecto.
 - **Dark mode**, **mobile-first responsive**.
 
@@ -116,11 +117,13 @@ supabase/migrations/0001_initial_schema.sql
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | — | **Requerida.** URL del proyecto Supabase. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | — | **Requerida.** anon public key. |
-| `MINIMAX_API_KEY` | — | **Requerida.** API key de MiniMax. |
+| `MINIMAX_API_KEY` | — | **Requerida.** API key de MiniMax. Usada por el chat Y por el proxy MCP `/api/mcp/minimax`. |
+| `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | URL pública de la app (sin slash final). Usada para construir las URLs de los proxies MCP internos. En Vercel: `https://<proyecto>.vercel.app`. |
+| `MCP_PROXY_TOKEN` | — | **Recomendado en producción.** Token compartido que protege los endpoints `/api/mcp/*`. Genera uno con `openssl rand -hex 32`. Si está vacío, los endpoints quedan abiertos. |
 | `MINIMAX_MODEL` | `MiniMax-M3` | Modelo por defecto. |
 | `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | URL base del API. |
 | `MCP_SERVERS_CONFIG` | `./mcp_servers.json` | Ruta al fichero de config de MCPs. |
-| `TAVILY_API_KEY` | — | Web search. Solo se usa en local. |
+| `TAVILY_API_KEY` | — | API key de Tavily, consumida por el proxy MCP `/api/mcp/tavily`. |
 | `CONTEXT7_API_KEY` | — | Recomendado. Mayor rate limit. |
 | `GROQ_API_KEY` | — | Transcripción de audio. |
 | `GLOBAL_AGENTS_PATH` | — | Ruta absoluta a un `AGENTS.md` global. |
@@ -138,17 +141,10 @@ Resumen:
 
 ## Limitaciones conocidas
 
-- **MCPs stdio (tavily, minimax-mcp) no funcionan en Vercel** (Vercel es serverless; no mantiene procesos de larga duración). En producción tendrás disponibles:
-  - ✅ `context7` (remoto oficial)
-  - ✅ `gh_grep` (remoto)
-  - ❌ `tavily` (solo local)
-  - ❌ `minimax-mcp` (solo local)
-  Si los necesitas en producción, despliega un servidor MCP stdio en Railway/Fly.io/VPS y cámbialos a `type: "remote"` en `mcp_servers.json`.
-- **Adjuntos en Storage**: el helper `src/lib/storage/attachments.ts` y el bucket `chat-attachments` (con RLS) están listos, pero el flujo actual del cliente sigue guardando adjuntos como dataURL en `messages.attachments_meta`. Migrar el cliente para que suba a Storage al adjuntar y renderice con signed URL es una mejora pendiente (issue a abrir).
-- **`uvx` (minimax-mcp)** requiere `uv` instalado. En local: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
-- **MCPs en Vercel** requieren que la conexión HTTP se mantenga viva. Vercel Hobby tiene un timeout de 10s en funciones; Pro, 60s. `context7` y `gh_grep` están preparados para eso.
-- **El `middleware` file convention está deprecado en Next.js 16** (ahora se llama `proxy.ts`). Sigue funcionando, pero conviene migrar en una release futura.
+- **`minimax-mcp` original (Python/uvx)** sigue siendo stdio. Lo hemos sustituido por un proxy MCP HTTP (`/api/mcp/minimax`) que wrappea la API REST de MiniMax directamente. Funcionalmente equivalente para `text_to_audio`, `text_to_image`, `generate_video` (con `query_video_generation`), `list_voices` y `music_generation`. La diferencia: el proxy se ejecuta dentro del deploy de Vercel y consume tu `MINIMAX_API_KEY` desde `process.env`, en vez de un proceso Python local. Si necesitas una tool específica del `minimax-mcp` original que no esté en el proxy (p. ej. `play_audio`, `voice_design` experimental), dímelo y la añado.
+- **El `middleware` file convention estaba deprecado en Next.js 16** (ahora `proxy.ts`). **Ya migrado** (`src/proxy.ts`). El build ya muestra `Proxy (Middleware)` en vez de `Middleware`.
 - **Registro público deshabilitado**: cada usuario nuevo lo das de alta manualmente en `Auth → Users → Add user` desde la Dashboard. Esto es intencional para no exponer tus API keys de MCP.
+- **Timeout de Vercel Functions**: Hobby = 10s, Pro = 60s. Las tools Tavily (search/extract/crawl) y MiniMax (image/audio) responden en segundos. `generate_video` puede tardar minutos; la implementación devuelve un `task_id` y hay que llamar a `query_video_generation` después. Aceptable, pero si quieres que el modelo espere el vídeo completo necesitas rethinkear el loop.
 
 ## Scripts
 

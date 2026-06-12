@@ -37,13 +37,14 @@ git push -u origin main
 
 | Variable | Valor | Notas |
 | --- | --- | --- |
+| `NEXT_PUBLIC_APP_URL` | `https://<proyecto>.vercel.app` | URL pública de la app (sin slash final). La usan los proxies MCP internos. |
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxxx.supabase.co` | Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGciOi...` | anon public key |
-| `MINIMAX_API_KEY` | `eyJ...` | API key de MiniMax |
-| `MINIMAX_MODEL` | `MiniMax-M3` | opcional |
-| `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | opcional |
+| `MINIMAX_API_KEY` | `eyJ...` | API key de MiniMax (consumida por el proxy MCP `/api/mcp/minimax`) |
+| `MINIMAX_BASE_URL` | `https://api.minimax.io` | base de la API REST de MiniMax (sin `/v1`; lo añaden los routes) |
+| `MCP_PROXY_TOKEN` | `<token-aleatorio>` | **obligatorio en producción**. Protege los endpoints `/api/mcp/*`. Genera con `openssl rand -hex 32`. |
 | `MCP_SERVERS_CONFIG` | `./mcp_servers.json` | opcional, default ya correcto |
-| `TAVILY_API_KEY` | `tvly-...` | opcional; tavily no funcionará en Vercel (es stdio) |
+| `TAVILY_API_KEY` | `tvly-...` | consumida por el proxy MCP `/api/mcp/tavily` |
 | `CONTEXT7_API_KEY` | `ctx7sk-...` | recomendado |
 | `GROQ_API_KEY` | `gsk-...` | opcional, para transcripción de audio |
 | `GLOBAL_AGENTS_PATH` | *(vacío)* | no tiene sentido en Vercel |
@@ -58,8 +59,13 @@ Una vez terminado:
 2. Debería redirigirte a `/login`.
 3. Entra con el email + contraseña del usuario que creaste en Supabase.
 4. Verifica que puedes enviar mensajes.
-5. Verifica que la lista de MCPs muestra context7 y gh_grep como "conectados" (tavily y minimax deben estar como "no conectados", esperado).
-6. Abre la misma URL desde el móvil (con la sesión iniciada) y crea una conversación → debería aparecer instantáneamente en el PC (Realtime).
+5. Verifica en `/settings` (o en el sidebar) que la lista de MCPs muestra los 4 servidores como **"conectados"**:
+   - ✅ `context7` (remoto oficial)
+   - ✅ `gh_grep` (remoto)
+   - ✅ `tavily` (proxy MCP propio en `/api/mcp/tavily`)
+   - ✅ `minimax` (proxy MCP propio en `/api/mcp/minimax`)
+6. Prueba una tool de cada uno desde el chat: por ejemplo, "busca en la web qué tiempo hace hoy en Madrid" (tavily) o "genera un audio diciendo hola" (minimax).
+7. Adjunta una imagen → debe subirse a Storage y verse desde otro dispositivo.
 
 ## 4. Configura el dominio personalizado (opcional)
 
@@ -90,9 +96,12 @@ En Supabase → **Authentication → Users → Add user** (botón verde).
 - Asegúrate de que `CONTEXT7_API_KEY` está bien puesta. Si no tienes, funciona igual con rate limit bajo.
 - En Vercel Functions hay un timeout de 10s en plan Hobby. Si context7 tarda más, considera el plan Pro.
 
-### Tavily y minimax-mcp aparecen como "no conectados"
+### Tavily o minimax aparecen como "no conectados" en producción
 
-- **Esperado en Vercel.** Son stdio, no funcionan en serverless. Funcionan en local sin tocar nada.
+- Verifica que `TAVILY_API_KEY` o `MINIMAX_API_KEY` están definidas en Vercel.
+- Comprueba que `NEXT_PUBLIC_APP_URL` apunta a tu dominio público de Vercel (no a `http://localhost:3000`).
+- Verifica que `MCP_PROXY_TOKEN` está definido y que el header se envía correctamente. Si no lo defines, los endpoints quedan abiertos (funciona pero no es seguro).
+- Revisa los logs de Vercel Functions para `/api/mcp/tavily` o `/api/mcp/minimax`.
 
 ### Realtime no sincroniza
 
@@ -102,4 +111,5 @@ En Supabase → **Authentication → Users → Add user** (botón verde).
 ### Storage falla al subir adjuntos
 
 - Verifica que la migración creó el bucket `chat-attachments` y las policies de `storage.objects`.
-- El plan Free tiene 1 GB de cuota. Los adjuntos actuales (dataURL) NO se suben a Storage todavía (ver "Limitaciones" del README).
+- El plan Free tiene 1 GB de cuota. Revisa en Supabase → Storage si te has quedado sin espacio.
+- Si falla la subida a Storage, la app sigue funcionando con el dataURL local (no se sincroniza entre dispositivos, pero el chat no se rompe). Verás un warning en la consola del navegador.
