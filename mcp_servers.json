@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Configuración de servidores MCP para MiniMax Chat.",
+    "",
+    "Los servidores de tipo 'remote' funcionan en Vercel (serverless) y en local.",
+    "Los servidores de tipo 'stdio' SOLO funcionan en local (Vercel no mantiene",
+    "procesos de larga duración). Cuando despliegues a Vercel, los stdio no estarán",
+    "disponibles, pero la app seguirá funcionando: el modelo responderá, context7",
+    "y gh_grep (remotos) seguirán disponibles.",
+    "",
+    "Si quieres usar tavily/minimax-mcp en producción, despliega un servidor",
+    "MCP stdio en Railway/Fly.io/VPS y cámbialos a 'remote' con su URL."
+  ],
+  "mcpServers": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+      },
+      "enabled": true,
+      "description": "Documentación oficial de librerías actualizada al día (remoto oficial)"
+    },
+    "tavily": {
+      "command": "npx",
+      "args": ["-y", "tavily-mcp@latest"],
+      "env": {
+        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+      },
+      "enabled": true,
+      "_note": "Solo local. Tavily aún no publica servidor MCP remoto oficial.",
+      "description": "Web search + extract + crawl en tiempo real (Tavily) [solo local]"
+    },
+    "gh_grep": {
+      "type": "remote",
+      "url": "https://mcp.grep.app",
+      "enabled": true,
+      "timeout": 10000,
+      "description": "Búsqueda de código en GitHub via grep.app (remoto)"
+    },
+    "minimax": {
+      "command": "uvx",
+      "args": ["minimax-mcp", "-y"],
+      "env": {
+        "MINIMAX_API_KEY": "${MINIMAX_API_KEY}",
+        "MINIMAX_API_HOST": "https://api.minimax.io",
+        "MINIMAX_API_RESOURCE_MODE": "url",
+        "MINIMAX_MCP_BASE_PATH": "${TMPDIR:-${TEMP:-${TMP:-/tmp}}}"
+      },
+      "enabled": true,
+      "_note": "Solo local. MiniMax-MCP no tiene remoto oficial; existe MiniMax-MCP-JS pero solo se ejecuta stdio.",
+      "description": "Generación de imagen, video, audio TTS y música con modelos MiniMax [solo local]"
+    }
+  }
+}
