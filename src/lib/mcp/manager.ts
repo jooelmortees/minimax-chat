@@ -105,6 +105,7 @@ export class MCPManager {
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
     try {
       if (config.type === "remote") {
+        console.log(`[mcp] parse ${name} url=${JSON.stringify(config.url)} len=${config.url.length}`);
         transport = new StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: config.headers },
         });
@@ -117,6 +118,7 @@ export class MCPManager {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      console.log(`[mcp] parse FAIL ${name} url=${JSON.stringify(config.url)} err=${message}`);
       status.error = `Config inválida: ${message}`;
       this.servers.set(name, {
         name,
