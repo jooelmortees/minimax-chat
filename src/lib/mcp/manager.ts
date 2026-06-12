@@ -43,14 +43,14 @@ export class MCPManager {
       return;
     }
 
-    // Log compacto para depuración: ver la URL interpolada de cada MCP remoto.
+    // Log para depuración: una línea corta por server (Vercel trunca a ~4KB).
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "∅";
-    console.log(`[mcp] init: app_url=${appUrl} servers=${Object.keys(config.mcpServers).join(",")}`);
+    console.log(`[mcp] init app=${appUrl.slice(0, 40)}`);
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
       if (cfg.type === "remote") {
-        console.log(`[mcp]   ${name}: kind=remote url=${cfg.url}`);
+        console.log(`[mcp] srv=${name} url=${cfg.url.slice(0, 80)}`);
       } else {
-        console.log(`[mcp]   ${name}: kind=stdio`);
+        console.log(`[mcp] srv=${name} kind=stdio`);
       }
     }
 
