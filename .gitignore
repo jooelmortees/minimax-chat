@@ -55,3 +55,5 @@ supabase/.temp
 
 # chat fix screenshots (artefactos de depuración previos)
 chat-fix-*.png
+
+.vercel
