@@ -23,6 +23,18 @@ interface ServerHandle {
 const SERVER_PREFIX = "mcp__";
 
 /**
+ * Opciones de inicialización del manager.
+ * Cada request crea un manager nuevo (ver comentario en el fichero),
+ * así que reenviar aquí la key BYOK del usuario es seguro: no se
+ * comparte entre usuarios ni entre peticiones.
+ */
+export interface MCPInitOptions {
+  /** API key de MiniMax del usuario (BYOK). Solo se reenvía al proxy /api/mcp/minimax. */
+  minimaxApiKey?: string;
+  minimaxBaseURL?: string;
+}
+
+/**
  * En Vercel (serverless) NO podemos mantener un singleton de procesos MCP entre
  * requests porque las warm instances cachean estado. Cada request obtiene un
  * MCPManager NUEVO. El overhead es bajo (cargar un JSON pequeño + abrir
@@ -38,16 +50,16 @@ export class MCPManager {
     return new MCPManager();
   }
 
-  async initialize(): Promise<void> {
+  async initialize(opts?: MCPInitOptions): Promise<void> {
     // Marcador único: si ves este log, sabes que es el código actual.
     console.log(`[mcp] init() called instance=${Math.random().toString(36).slice(2, 10)} initialized=${this.initialized} initPromise=${!!this.initPromise}`);
     if (this.initialized) return;
     if (this.initPromise) return this.initPromise;
-    this.initPromise = this.doInitialize();
+    this.initPromise = this.doInitialize(opts);
     return this.initPromise;
   }
 
-  private async doInitialize(): Promise<void> {
+  private async doInitialize(opts?: MCPInitOptions): Promise<void> {
     this.initialized = true;
 
     const config = await loadMCPConfig();
@@ -70,14 +82,15 @@ export class MCPManager {
 
     await Promise.all(
       Object.entries(config.mcpServers).map(([name, cfg]) =>
-        this.startServer(name, cfg)
+        this.startServer(name, cfg, opts)
       )
     );
   }
 
   private async startServer(
     name: string,
-    config: MCPServerConfig
+    config: MCPServerConfig,
+    opts?: MCPInitOptions
   ): Promise<void> {
     const status: MCPServerStatus = {
       name,
@@ -116,8 +129,16 @@ export class MCPManager {
             console.log(`[mcp] BAD CHAR at ${i}: code=${config.url.charCodeAt(i)}`);
           }
         }
+        // BYOK: si el usuario trae su propia key de MiniMax, se la pasamos
+        // al proxy interno para que las tools de medios usen SU key y no
+        // la del servidor. (Nunca se loguea el valor.)
+        const headers: Record<string, string> = { ...(config.headers ?? {}) };
+        if (name === "minimax") {
+          if (opts?.minimaxApiKey) headers["x-llm-api-key"] = opts.minimaxApiKey;
+          if (opts?.minimaxBaseURL) headers["x-llm-base-url"] = opts.minimaxBaseURL;
+        }
         transport = new StreamableHTTPClientTransport(new URL(config.url), {
-          requestInit: { headers: config.headers },
+          requestInit: { headers },
         });
         console.log(`[mcp] parse OK name=${name}`);
       } else {

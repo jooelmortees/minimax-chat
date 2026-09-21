@@ -21,6 +21,23 @@ A web chat client for **MiniMax M3** with real tool use via **MCP servers**, use
 - **AGENTS.md as system prompt** — project and global `AGENTS.md` files are loaded into the agent's context.
 - **Dark mode**, mobile-first responsive UI.
 
+## 🔑 Bring your own API key (BYOK)
+
+Anyone can use the app with **their own API key** — nobody spends the deployer's credits.
+
+1. Open **Settings → Your API key**.
+2. Paste your MiniMax key (get one at [platform.minimaxi.com](https://platform.minimaxi.com/user-center/basic-information/interface-key)).
+3. Optionally set a custom **base URL** (any OpenAI-compatible endpoint) and **model**.
+
+How it works:
+
+- The key is stored **only in your browser** (`localStorage`) — it is never sent to Supabase or stored on the server.
+- Each chat request sends it as a header; the server uses it **transiently** for that request only (chat completions *and* the MiniMax media tools: image, audio, video, music).
+- It is never cached server-side and never logged.
+- If the deployment also defines `MINIMAX_API_KEY`, a user-provided key **takes precedence** over it.
+
+> **Deployers:** on a public demo, simply *don't* set `MINIMAX_API_KEY` — visitors will be asked to add their own key in Settings, so there is nothing of yours to burn. Set it only for private deployments where you want a shared key.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -59,7 +76,8 @@ npm run dev
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase `anon` public key |
-| `MINIMAX_API_KEY` | Yes | MiniMax key — used by the chat and the `/api/mcp/minimax` proxy |
+| `MINIMAX_API_KEY` | No | Shared key used by the chat and the `/api/mcp/minimax` proxy when the user has not set their own (see BYOK above). Leave unset on public demos. |
+| `MINIMAX_BASE_URL` | No | Default `https://api.minimax.io/v1` |
 | `TAVILY_API_KEY` | No | Powers the `/api/mcp/tavily` proxy |
 | `CONTEXT7_API_KEY` | No | Higher rate limits for context7 |
 | `MINIMAX_MODEL` | No | Default `MiniMax-M3` |

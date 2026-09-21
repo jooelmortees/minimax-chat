@@ -31,7 +31,27 @@ export async function POST(req: NextRequest) {
 
   const conversationId =
     body.conversationId ?? `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const model = body.model ?? getDefaultModel();
+
+  // BYOK: cada usuario puede traer su propia API key en headers
+  // (ver src/lib/llm/byok.ts). Prioridad: header del usuario > env del servidor.
+  // La key del header solo se usa de forma transitoria en esta petición:
+  // nunca se guarda ni se loguea.
+  const byokApiKey = req.headers.get("x-llm-api-key")?.trim() || undefined;
+  const byokBaseURL = req.headers.get("x-llm-base-url")?.trim() || undefined;
+  const byokModel = req.headers.get("x-llm-model")?.trim() || undefined;
+
+  if (!byokApiKey && !process.env.MINIMAX_API_KEY) {
+    return Response.json(
+      {
+        error: "missing_api_key",
+        message:
+          "No hay API key configurada. Abre Ajustes y añade tu propia API key, o define MINIMAX_API_KEY en el servidor.",
+      },
+      { status: 401 }
+    );
+  }
+
+  const model = byokModel || body.model || getDefaultModel();
 
   // SSE: configuramos los headers manualmente
   const encoder = new TextEncoder();
@@ -49,7 +69,12 @@ export async function POST(req: NextRequest) {
 
       // Mantenemos el manager MCP inicializado durante toda la sesión
       try {
-        await MCPManager.get().initialize();
+        await MCPManager.get().initialize({
+          // BYOK: reenviamos la key del usuario al proxy interno de MiniMax
+          // para que las tools de medios tampoco gasten la key del servidor.
+          minimaxApiKey: byokApiKey,
+          minimaxBaseURL: byokBaseURL,
+        });
         await runAgentLoop(body.messages, {
           conversationId,
           model,
@@ -57,6 +82,7 @@ export async function POST(req: NextRequest) {
           onEvent: send,
           capabilities: body.capabilities,
           systemPromptAdditions: body.systemPromptAdditions,
+          llm: { apiKey: byokApiKey, baseURL: byokBaseURL },
         });
       } catch (err) {
         const message =

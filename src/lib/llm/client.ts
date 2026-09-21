@@ -12,28 +12,45 @@ import OpenAI from "openai";
 
 let cached: OpenAI | null = null;
 
-export function getMinimaxClient(): OpenAI {
-  if (cached) return cached;
+export interface LlmOverrides {
+  /**
+   * API key aportada por el usuario (BYOK). Cuando se pasa, el cliente
+   * se crea de cero para esa petición y NUNCA se cachea, para no
+   * mezclar claves entre usuarios.
+   */
+  apiKey?: string;
+  baseURL?: string;
+}
 
-  const apiKey = process.env.MINIMAX_API_KEY;
+export function getMinimaxClient(overrides?: LlmOverrides): OpenAI {
+  const apiKey = overrides?.apiKey?.trim() || process.env.MINIMAX_API_KEY;
   if (!apiKey) {
     throw new Error(
-      "MINIMAX_API_KEY no está definida. Crea un .env.local con tu clave de https://platform.minimaxi.com"
+      "No hay API key configurada. Añade la tuya en Ajustes o define MINIMAX_API_KEY en el servidor."
     );
   }
 
-  const baseURL = process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1";
+  const baseURL =
+    overrides?.baseURL?.trim() ||
+    process.env.MINIMAX_BASE_URL ||
+    "https://api.minimax.io/v1";
 
-  cached = new OpenAI({
-    apiKey,
-    baseURL,
-    // El SDK de OpenAI reintenta por defecto; lo desactivamos porque
-    // queremos que el error suba rápido al cliente.
-    maxRetries: 0,
-    timeout: 120_000,
-  });
+  // El SDK de OpenAI reintenta por defecto; lo desactivamos porque
+  // queremos que el error suba rápido al cliente.
+  const opts = { apiKey, baseURL, maxRetries: 0, timeout: 120_000 };
 
+  if (overrides?.apiKey?.trim()) {
+    return new OpenAI(opts);
+  }
+
+  if (cached) return cached;
+  cached = new OpenAI(opts);
   return cached;
+}
+
+/** ¿El servidor tiene su propia key configurada? */
+export function hasServerKey(): boolean {
+  return !!process.env.MINIMAX_API_KEY;
 }
 
 export function getDefaultModel(): string {

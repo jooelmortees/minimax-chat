@@ -26,6 +26,8 @@ export class MiniMaxApiError extends Error {
 interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
+  /** Override del baseURL (BYOK). Si no viene, se usa MINIMAX_BASE_URL. */
+  baseURL?: string;
 }
 
 async function request(
@@ -33,7 +35,7 @@ async function request(
   apiKey: string,
   options: RequestOptions = {}
 ): Promise<unknown> {
-  const baseUrl = (process.env.MINIMAX_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, '');
+  const baseUrl = (options.baseURL?.trim() || process.env.MINIMAX_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, '');
   const url = `${baseUrl}${path}`;
   const res = await fetch(url, {
     method: options.body ? 'POST' : 'GET',
@@ -83,6 +85,26 @@ export interface VideoTask {
 
 // ---- API pública ---------------------------------------------------------
 
+/**
+ * Resuelve la API key a usar: primero la aportada por el usuario (BYOK),
+ * si no la del servidor. Nunca se loguea el valor.
+ */
+function resolveKey(overrideKey?: string): string {
+  const apiKey = overrideKey?.trim() || process.env.MINIMAX_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      'No hay API key de MiniMax: añade la tuya en Ajustes o define MINIMAX_API_KEY en el servidor.'
+    );
+  }
+  return apiKey;
+}
+
+/** Campos BYOK aceptados por todas las funciones de esta API. */
+export interface ByokOverride {
+  apiKey?: string;
+  baseURL?: string;
+}
+
 export async function textToAudio(params: {
   text: string;
   model?: string;
@@ -92,9 +114,8 @@ export async function textToAudio(params: {
   pitch?: number;
   format?: string;
   sampleRate?: number;
-}): Promise<{ file_url?: string; base64?: string; duration_ms?: number; raw: unknown }> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) throw new Error('MINIMAX_API_KEY no está configurada en el servidor.');
+} & ByokOverride): Promise<{ file_url?: string; base64?: string; duration_ms?: number; raw: unknown }> {
+  const apiKey = resolveKey(params.apiKey);
 
   const body = {
     model: params.model ?? 'speech-02-hd',
@@ -112,7 +133,7 @@ export async function textToAudio(params: {
     },
     stream: false,
   };
-  const raw = (await request('/v1/text_to_audio', apiKey, { body })) as Record<string, unknown>;
+  const raw = (await request('/v1/text_to_audio', apiKey, { body, baseURL: params.baseURL })) as Record<string, unknown>;
   // La API suele devolver { audio: { url, duration_ms, ... } } o { file_url, ... } según versión.
   const audio = (raw.audio ?? raw) as { url?: string; file_url?: string; base64?: string; duration_ms?: number };
   return {
@@ -129,9 +150,8 @@ export async function textToImage(params: {
   aspectRatio?: string;
   n?: number;
   subjectReference?: string;
-}): Promise<{ image_urls?: string[]; raw: unknown }> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) throw new Error('MINIMAX_API_KEY no está configurada en el servidor.');
+} & ByokOverride): Promise<{ image_urls?: string[]; raw: unknown }> {
+  const apiKey = resolveKey(params.apiKey);
 
   const body: Record<string, unknown> = {
     model: params.model ?? 'image-01',
@@ -141,7 +161,7 @@ export async function textToImage(params: {
     prompt_optimizer: true,
   };
   if (params.subjectReference) body.subject_reference = params.subjectReference;
-  const raw = (await request('/v1/image_generation', apiKey, { body })) as Record<string, unknown>;
+  const raw = (await request('/v1/image_generation', apiKey, { body, baseURL: params.baseURL })) as Record<string, unknown>;
   const urls = (raw.image_urls ?? raw.images) as string[] | undefined;
   return { image_urls: urls, raw };
 }
@@ -152,9 +172,8 @@ export async function generateVideo(params: {
   firstFrameImage?: string;
   duration?: number;
   resolution?: string;
-}): Promise<VideoTask> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) throw new Error('MINIMAX_API_KEY no está configurada en el servidor.');
+} & ByokOverride): Promise<VideoTask> {
+  const apiKey = resolveKey(params.apiKey);
 
   const body: Record<string, unknown> = {
     model: params.model ?? 'MiniMax-Hailuo-02',
@@ -163,7 +182,7 @@ export async function generateVideo(params: {
   if (params.firstFrameImage) body.first_frame_image = params.firstFrameImage;
   if (params.duration) body.duration = params.duration;
   if (params.resolution) body.resolution = params.resolution;
-  const raw = (await request('/v1/video_generation', apiKey, { body })) as Record<string, unknown>;
+  const raw = (await request('/v1/video_generation', apiKey, { body, baseURL: params.baseURL })) as Record<string, unknown>;
   return {
     task_id: (raw.task_id as string) ?? (raw.taskId as string) ?? '',
     status: raw.status as string | undefined,
@@ -172,13 +191,13 @@ export async function generateVideo(params: {
   };
 }
 
-export async function queryVideoGeneration(taskId: string): Promise<VideoTask> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) throw new Error('MINIMAX_API_KEY no está configurada en el servidor.');
+export async function queryVideoGeneration(taskId: string, opts?: ByokOverride): Promise<VideoTask> {
+  const apiKey = resolveKey(opts?.apiKey);
 
   const raw = (await request(
     `/v1/query/video_generation?task_id=${encodeURIComponent(taskId)}`,
-    apiKey
+    apiKey,
+    { baseURL: opts?.baseURL }
   )) as Record<string, unknown>;
   return {
     task_id: taskId,
@@ -188,11 +207,10 @@ export async function queryVideoGeneration(taskId: string): Promise<VideoTask> {
   };
 }
 
-export async function listVoices(): Promise<VoiceInfo[]> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) throw new Error('MINIMAX_API_KEY no está configurada en el servidor.');
+export async function listVoices(opts?: ByokOverride): Promise<VoiceInfo[]> {
+  const apiKey = resolveKey(opts?.apiKey);
 
-  const raw = (await request('/v1/voice/list', apiKey)) as
+  const raw = (await request('/v1/voice/list', apiKey, { baseURL: opts?.baseURL })) as
     | { voice_list?: VoiceInfo[]; voices?: VoiceInfo[]; system_voice_list?: VoiceInfo[] }
     | VoiceInfo[];
   if (Array.isArray(raw)) return raw;
@@ -205,9 +223,8 @@ export async function musicGeneration(params: {
   model?: string;
   sampleRate?: number;
   format?: string;
-}): Promise<{ file_url?: string; base64?: string; raw: unknown }> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) throw new Error('MINIMAX_API_KEY no está configurada en el servidor.');
+} & ByokOverride): Promise<{ file_url?: string; base64?: string; raw: unknown }> {
+  const apiKey = resolveKey(params.apiKey);
 
   const body = {
     model: params.model ?? 'music-1.5',
@@ -219,7 +236,7 @@ export async function musicGeneration(params: {
       bitrate: 128000,
     },
   };
-  const raw = (await request('/v1/music_generation', apiKey, { body })) as Record<string, unknown>;
+  const raw = (await request('/v1/music_generation', apiKey, { body, baseURL: params.baseURL })) as Record<string, unknown>;
   const audio = (raw.audio ?? raw) as { url?: string; file_url?: string; base64?: string };
   return {
     file_url: audio.url ?? audio.file_url,

@@ -8,6 +8,7 @@ import type {
   StreamEvent,
   ToolCall,
 } from "@/lib/types";
+import { byokHeaders } from "@/lib/llm/byok";
 
 interface UseChatOptions {
   model: string;
@@ -94,7 +95,9 @@ export function useChat({
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // BYOK: si el usuario configuró su propia API key en Ajustes,
+          // viaja aquí; el servidor la usa solo para esta petición.
+          headers: { "Content-Type": "application/json", ...byokHeaders() },
           body: JSON.stringify({
             messages: messagesToSend,
             model,

@@ -33,7 +33,13 @@ import {
   type VoiceInfo,
 } from '../minimax-api';
 
-export function createMiniMaxMcpServer(): McpServer {
+export interface MiniMaxServerOverrides {
+  /** API key del usuario (BYOK). Si no viene, las funciones usan MINIMAX_API_KEY del servidor. */
+  apiKey?: string;
+  baseURL?: string;
+}
+
+export function createMiniMaxMcpServer(overrides?: MiniMaxServerOverrides): McpServer {
   const server = new McpServer(
     {
       name: 'minimax',
@@ -71,6 +77,8 @@ export function createMiniMaxMcpServer(): McpServer {
           model: args.model,
           speed: args.speed,
           pitch: args.pitch,
+          apiKey: overrides?.apiKey,
+          baseURL: overrides?.baseURL,
         });
         const lines = [
           result.file_url ? `URL del audio: ${result.file_url}` : 'Audio generado (sin URL pública).',
@@ -120,6 +128,8 @@ export function createMiniMaxMcpServer(): McpServer {
           aspectRatio: args.aspect_ratio,
           n: args.n,
           subjectReference: args.subject_reference,
+          apiKey: overrides?.apiKey,
+          baseURL: overrides?.baseURL,
         });
         const urls = result.image_urls ?? [];
         return {
@@ -176,6 +186,8 @@ export function createMiniMaxMcpServer(): McpServer {
           duration: args.duration,
           resolution: args.resolution,
           firstFrameImage: args.first_frame_image,
+          apiKey: overrides?.apiKey,
+          baseURL: overrides?.baseURL,
         });
         return {
           content: [
@@ -211,7 +223,10 @@ export function createMiniMaxMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const task = await queryVideoGeneration(args.task_id);
+        const task = await queryVideoGeneration(args.task_id, {
+          apiKey: overrides?.apiKey,
+          baseURL: overrides?.baseURL,
+        });
         const status = task.status ?? 'desconocido';
         if (task.file_url) {
           return {
@@ -249,7 +264,10 @@ export function createMiniMaxMcpServer(): McpServer {
     {},
     async () => {
       try {
-        const voices = await listVoices();
+        const voices = await listVoices({
+          apiKey: overrides?.apiKey,
+          baseURL: overrides?.baseURL,
+        });
         const text = voices
           .map(
             (v: VoiceInfo) =>
@@ -296,7 +314,12 @@ export function createMiniMaxMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const result = await musicGeneration({ prompt: args.prompt, lyrics: args.lyrics });
+        const result = await musicGeneration({
+          prompt: args.prompt,
+          lyrics: args.lyrics,
+          apiKey: overrides?.apiKey,
+          baseURL: overrides?.baseURL,
+        });
         return {
           content: [
             { type: 'text' as const, text: result.file_url ? `URL del audio: ${result.file_url}` : 'Música generada (sin URL pública).' },

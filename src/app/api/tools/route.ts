@@ -2,11 +2,12 @@ import { MCPManager } from "@/lib/mcp/manager";
 import { getMinimaxClient, getDefaultModel } from "@/lib/llm/client";
 import { listProjectMarkdownFiles } from "@/lib/agents/system-prompt";
 import { AVAILABLE_MODELS } from "@/lib/types";
+import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const mcp = MCPManager.get();
   await mcp.initialize();
 
@@ -39,11 +40,16 @@ export async function GET() {
 
   const mdFiles = await listProjectMarkdownFiles();
 
-  // Comprobamos conectividad con MiniMax (intento de listar modelos, barato)
+  // Comprobamos conectividad con MiniMax (intento de listar modelos, barato).
+  // BYOK: si el llamante trae su propia key en headers, la usamos para el
+  // chequeo, igual que haría /api/chat.
   let minimaxReachable = false;
   let minimaxError: string | undefined;
   try {
-    const client = getMinimaxClient();
+    const client = getMinimaxClient({
+      apiKey: req.headers.get("x-llm-api-key")?.trim() || undefined,
+      baseURL: req.headers.get("x-llm-base-url")?.trim() || undefined,
+    });
     await client.models.list();
     minimaxReachable = true;
   } catch (err) {

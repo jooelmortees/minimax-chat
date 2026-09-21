@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { getMinimaxClient, getDefaultModel } from "@/lib/llm/client";
+import type { LlmOverrides } from "@/lib/llm/client";
 import { MCPManager } from "@/lib/mcp/manager";
 import { buildSystemPrompt, listProjectMarkdownFiles } from "@/lib/agents/system-prompt";
 import { readFile, stat } from "node:fs/promises";
@@ -17,6 +18,8 @@ interface RunOptions {
   onEvent: (event: StreamEvent) => void;
   capabilities?: Capabilities;
   systemPromptAdditions?: string;
+  /** Overrides BYOK: si vienen, se usan en lugar de las env del servidor. */
+  llm?: LlmOverrides;
 }
 
 /**
@@ -236,7 +239,7 @@ export async function runAgentLoop(
   history: Message[],
   options: RunOptions
 ): Promise<void> {
-  const client = getMinimaxClient();
+  const client = getMinimaxClient(options.llm);
   const mcpManager = MCPManager.get();
   await mcpManager.initialize();
 

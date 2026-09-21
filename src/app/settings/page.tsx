@@ -15,12 +15,25 @@ import {
   Mic,
   Music,
   Save,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CAPABILITIES } from "@/lib/types";
 import { getPrefs, savePrefs, DEFAULT_PREFS, type UserPrefs } from "@/lib/storage/conversations";
+import {
+  getByokConfig,
+  saveByokConfig,
+  clearByokConfig,
+  byokHeaders,
+  DEFAULT_BASE_URL,
+  DEFAULT_MODEL,
+  type ByokConfig,
+} from "@/lib/llm/byok";
 import type { MCPServerStatus, MCPTool } from "@/lib/types";
 
 interface ToolsInfo {
@@ -41,11 +54,25 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS);
   const [saved, setSaved] = useState<number>(0); // timestamp de último guardado
+  // BYOK: la API key del usuario vive solo en el localStorage del navegador.
+  const [byok, setByok] = useState<ByokConfig>({
+    apiKey: "",
+    baseURL: DEFAULT_BASE_URL,
+    model: DEFAULT_MODEL,
+  });
+  const [byokHasKey, setByokHasKey] = useState(false);
+  const [byokShowKey, setByokShowKey] = useState(false);
+  const [byokSavedAt, setByokSavedAt] = useState<number>(0);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/tools", { cache: "no-store" });
+      // Enviamos la key BYOK (si existe) para que el chequeo de
+      // conectividad use la misma key que usaría el chat.
+      const res = await fetch("/api/tools", {
+        cache: "no-store",
+        headers: byokHeaders(),
+      });
       if (res.ok) setData((await res.json()) as ToolsInfo);
     } catch (err) {
       console.warn(err);
@@ -58,7 +85,29 @@ export default function SettingsPage() {
     void load();
     // Carga prefs desde Supabase tras montar (sin hydration mismatch).
     void getPrefs().then(setPrefs);
+    // Carga la config BYOK desde localStorage (nunca sale del navegador).
+    const cfg = getByokConfig();
+    if (cfg) {
+      setByok(cfg);
+      setByokHasKey(true);
+    }
   }, []);
+
+  const saveByok = () => {
+    if (!byok.apiKey.trim()) return;
+    saveByokConfig(byok);
+    setByokHasKey(true);
+    setByokSavedAt(Date.now());
+    void load(); // re-chequea conectividad con la nueva key
+  };
+
+  const removeByok = () => {
+    clearByokConfig();
+    setByok({ apiKey: "", baseURL: DEFAULT_BASE_URL, model: DEFAULT_MODEL });
+    setByokHasKey(false);
+    setByokShowKey(false);
+    void load();
+  };
 
   const updatePrefs = (next: UserPrefs) => {
     setPrefs(next);
@@ -104,6 +153,108 @@ export default function SettingsPage() {
 
       <main className="max-w-3xl mx-auto px-3 sm:px-4 py-6 space-y-6">
         <h1 className="text-2xl font-semibold">Ajustes y diagnóstico</h1>
+
+        <Section title="Tu API key (BYOK)">
+          <p className="text-xs text-fg-muted mb-3">
+            Usa tu propia API key y nadie gasta los créditos del que despliega
+            la app. La key se guarda <strong>solo en este navegador</strong>{" "}
+            (localStorage): nunca se envía a Supabase ni se almacena en el
+            servidor. Consigue una gratis en{" "}
+            <a
+              href="https://platform.minimaxi.com/user-center/basic-information/interface-key"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline"
+            >
+              platform.minimaxi.com
+            </a>
+            .
+          </p>
+          <div className="space-y-2">
+            <label className="block">
+              <span className="text-xs text-fg-muted flex items-center gap-1.5 mb-1">
+                <KeyRound size={12} /> API key
+              </span>
+              <div className="relative">
+                <input
+                  type={byokShowKey ? "text" : "password"}
+                  value={byok.apiKey}
+                  onChange={(e) =>
+                    setByok({ ...byok, apiKey: e.target.value })
+                  }
+                  placeholder={
+                    byokHasKey ? "•••••••• (ya hay una key guardada)" : "Pega tu API key aquí"
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full text-sm font-mono bg-bg border border-border rounded-lg px-3 py-2 pr-10 focus:outline-none focus:border-accent/60"
+                />
+                <button
+                  type="button"
+                  onClick={() => setByokShowKey((v) => !v)}
+                  aria-label={byokShowKey ? "Ocultar key" : "Mostrar key"}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
+                >
+                  {byokShowKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="block">
+                <span className="text-xs text-fg-muted mb-1 block">
+                  Base URL (endpoint compatible con OpenAI)
+                </span>
+                <input
+                  type="text"
+                  value={byok.baseURL}
+                  onChange={(e) =>
+                    setByok({ ...byok, baseURL: e.target.value })
+                  }
+                  placeholder={DEFAULT_BASE_URL}
+                  spellCheck={false}
+                  className="w-full text-sm font-mono bg-bg border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-accent/60"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs text-fg-muted mb-1 block">Modelo</span>
+                <input
+                  type="text"
+                  value={byok.model}
+                  onChange={(e) =>
+                    setByok({ ...byok, model: e.target.value })
+                  }
+                  placeholder={DEFAULT_MODEL}
+                  spellCheck={false}
+                  className="w-full text-sm font-mono bg-bg border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-accent/60"
+                />
+              </label>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={saveByok}
+                disabled={!byok.apiKey.trim()}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-40"
+              >
+                <Save size={12} /> Guardar key
+              </button>
+              {byokHasKey && (
+                <button
+                  type="button"
+                  onClick={removeByok}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-danger/40 text-danger hover:bg-danger/10"
+                >
+                  <Trash2 size={12} /> Borrar
+                </button>
+              )}
+              {byokSavedAt > 0 && (
+                <span className="text-xs text-success flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Guardada en este navegador
+                </span>
+              )}
+            </div>
+          </div>
+        </Section>
 
         <Section title="Capacidades multimodales">
           <p className="text-xs text-fg-muted mb-3">
@@ -353,7 +504,7 @@ export default function SettingsPage() {
               Variables leídas de <code>.env.local</code>:
             </p>
             <ul className="list-disc pl-5 space-y-0.5 font-mono text-xs">
-              <li>MINIMAX_API_KEY (requerida)</li>
+              <li>MINIMAX_API_KEY (opcional: solo si el despliegue ofrece una key compartida; si no se define, cada usuario pone la suya en el apartado “Tu API key” de arriba)</li>
               <li>MINIMAX_MODEL (default: MiniMax-M3)</li>
               <li>MINIMAX_BASE_URL (default: https://api.minimax.io/v1)</li>
               <li>GROQ_API_KEY (opcional, para transcribir audio con Whisper via Groq)</li>

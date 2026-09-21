@@ -9,6 +9,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createMiniMaxMcpServer } from '@/lib/mcp/servers/minimax-server';
+import type { MiniMaxServerOverrides } from '@/lib/mcp/servers/minimax-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,24 +22,31 @@ function authorize(req: Request): Response | null {
   return null;
 }
 
-async function handleMcpRequest(req: Request, getServer: () => McpServer): Promise<Response> {
+async function handleMcpRequest(req: Request): Promise<Response> {
   const unauthorized = authorize(req);
   if (unauthorized) return unauthorized;
 
+  // BYOK: si el llamante trae su propia key (la reenvía el chat route),
+  // las tools de medios la usan en lugar de la del servidor.
+  const overrides: MiniMaxServerOverrides = {
+    apiKey: req.headers.get('x-llm-api-key')?.trim() || undefined,
+    baseURL: req.headers.get('x-llm-base-url')?.trim() || undefined,
+  };
+
   const transport = new WebStandardStreamableHTTPServerTransport();
-  const server = getServer();
+  const server = createMiniMaxMcpServer(overrides);
   await server.connect(transport);
   return transport.handleRequest(req);
 }
 
 export async function POST(req: Request): Promise<Response> {
-  return handleMcpRequest(req, createMiniMaxMcpServer);
+  return handleMcpRequest(req);
 }
 
 export async function GET(req: Request): Promise<Response> {
-  return handleMcpRequest(req, createMiniMaxMcpServer);
+  return handleMcpRequest(req);
 }
 
 export async function DELETE(req: Request): Promise<Response> {
-  return handleMcpRequest(req, createMiniMaxMcpServer);
+  return handleMcpRequest(req);
 }
